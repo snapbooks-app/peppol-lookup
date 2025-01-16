@@ -146,22 +146,33 @@ jobs:
         failures=()
         
         run_test() {
-          if ! test_example "$1"; then
-            failures+=("$1")
+          local dir=$1
+          local cmd=$2
+          echo "Testing in directory: $dir"
+          echo "Command: $cmd"
+          
+          # Save current directory
+          pushd "$dir" > /dev/null
+          
+          if ! test_example "$cmd"; then
+            failures+=("$dir: $cmd")
           fi
+          
+          # Restore directory
+          popd > /dev/null
         }
         
         # Run all tests
-        run_test "python3 python/peppol_lookup.py"
-        run_test "node javascript/peppol-lookup.js"
-        run_test "cd java && javac PeppolLookup.java && java PeppolLookup"
-        run_test "cd go && go run peppol_lookup.go"
-        run_test "php php/peppol_lookup.php"
-        run_test "cd csharp && dotnet run"
-        run_test "./bash/peppol_lookup.sh"
-        run_test "pwsh powershell/peppol_lookup.ps1"
-        run_test "ruby ruby/peppol_lookup.rb"
-        run_test "cd rust && cargo run"
+        run_test "." "python3 python/peppol_lookup.py"
+        run_test "." "node javascript/peppol-lookup.js"
+        run_test "java" "javac PeppolLookup.java && java PeppolLookup"
+        run_test "go" "go run peppol_lookup.go"
+        run_test "." "php php/peppol_lookup.php"
+        run_test "csharp" "dotnet run"
+        run_test "." "./bash/peppol_lookup.sh"
+        run_test "." "pwsh powershell/peppol_lookup.ps1"
+        run_test "." "ruby ruby/peppol_lookup.rb"
+        run_test "rust" "cargo run"
         
         # Report results
         if [ ${#failures[@]} -ne 0 ]; then
