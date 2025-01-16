@@ -1,0 +1,153 @@
+name: Test Examples
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    # Install dependencies
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y host curl
+
+    # Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - name: Test Python example
+      run: python3 python/peppol_lookup.py
+
+    # Node.js
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    - name: Test Node.js example
+      run: node javascript/peppol-lookup.js
+
+    # Java
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    - name: Test Java example
+      run: |
+        cd java
+        javac PeppolLookup.java
+        java PeppolLookup
+
+    # Go
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+    - name: Test Go example
+      run: |
+        cd go
+        go run peppol_lookup.go
+
+    # PHP
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+    - name: Test PHP example
+      run: php php/peppol_lookup.php
+
+    # .NET
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.x'
+    - name: Test C# example
+      run: |
+        cd csharp
+        dotnet run
+
+    # Bash
+    - name: Test Bash example
+      run: |
+        chmod +x bash/peppol_lookup.sh
+        ./bash/peppol_lookup.sh
+
+    # PowerShell
+    - name: Test PowerShell example
+      run: pwsh powershell/peppol_lookup.ps1
+
+    # Ruby
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.2'
+    - name: Test Ruby example
+      run: |
+        chmod +x ruby/peppol_lookup.rb
+        ruby ruby/peppol_lookup.rb
+
+    # Rust
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Test Rust example
+      run: |
+        cd rust
+        cargo run
+
+    # Verify output format
+    - name: Verify all examples produce expected output format
+      run: |
+        # Function to test an example
+        test_example() {
+          local example=$1
+          echo "Testing $example"
+          
+          # Run example and capture output
+          output=$($example 2>&1)
+          
+          # Check for expected output
+          if ! echo "$output" | grep -q "SMP hostname: b-e258de9dbe1f34f17b55d5d3cc5e7a66"; then
+            echo "❌ $example did not produce expected SMP hostname"
+            echo "Output was:"
+            echo "$output"
+            return 1
+          fi
+          
+          if ! echo "$output" | grep -q "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice"; then
+            echo "❌ $example did not find Invoice document type"
+            echo "Output was:"
+            echo "$output"
+            return 1
+          fi
+          
+          if ! echo "$output" | grep -q "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote"; then
+            echo "❌ $example did not find CreditNote document type"
+            echo "Output was:"
+            echo "$output"
+            return 1
+          fi
+          
+          echo "✅ $example passed"
+          return 0
+        }
+        
+        # Test each example
+        test_example "python3 python/peppol_lookup.py"
+        test_example "node javascript/peppol-lookup.js"
+        test_example "cd java && javac PeppolLookup.java && java PeppolLookup"
+        test_example "cd go && go run peppol_lookup.go"
+        test_example "php php/peppol_lookup.php"
+        test_example "cd csharp && dotnet run"
+        test_example "./bash/peppol_lookup.sh"
+        test_example "pwsh powershell/peppol_lookup.ps1"
+        test_example "ruby ruby/peppol_lookup.rb"
+        test_example "cd rust && cargo run"
