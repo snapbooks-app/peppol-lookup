@@ -66,10 +66,10 @@ jobs:
       run: php php/peppol_lookup.php
 
     # .NET
-    - name: Install .NET
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y dotnet-sdk-8.0
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
     - name: Test C# example
       run: |
         cd csharp
@@ -140,14 +140,32 @@ jobs:
           return 0
         }
         
-        # Test each example
-        test_example "python3 python/peppol_lookup.py"
-        test_example "node javascript/peppol-lookup.js"
-        test_example "cd java && javac PeppolLookup.java && java PeppolLookup"
-        test_example "cd go && go run peppol_lookup.go"
-        test_example "php php/peppol_lookup.php"
-        test_example "cd csharp && dotnet run"
-        test_example "./bash/peppol_lookup.sh"
-        test_example "pwsh powershell/peppol_lookup.ps1"
-        test_example "ruby ruby/peppol_lookup.rb"
-        test_example "cd rust && cargo run"
+        # Test each example and collect failures
+        failures=()
+        
+        run_test() {
+          if ! test_example "$1"; then
+            failures+=("$1")
+          fi
+        }
+        
+        # Run all tests
+        run_test "python3 python/peppol_lookup.py"
+        run_test "node javascript/peppol-lookup.js"
+        run_test "cd java && javac PeppolLookup.java && java PeppolLookup"
+        run_test "cd go && go run peppol_lookup.go"
+        run_test "php php/peppol_lookup.php"
+        run_test "cd csharp && dotnet run"
+        run_test "./bash/peppol_lookup.sh"
+        run_test "pwsh powershell/peppol_lookup.ps1"
+        run_test "ruby ruby/peppol_lookup.rb"
+        run_test "cd rust && cargo run"
+        
+        # Report results
+        if [ ${#failures[@]} -ne 0 ]; then
+          echo "❌ The following tests failed:"
+          printf '%s\n' "${failures[@]}"
+          exit 1
+        fi
+        
+        echo "✅ All tests passed!"
