@@ -66,10 +66,10 @@ jobs:
       run: php php/peppol_lookup.php
 
     # .NET
-    - name: Set up .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'
+    - name: Install .NET
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dotnet-sdk-8.0
     - name: Test C# example
       run: |
         cd csharp
