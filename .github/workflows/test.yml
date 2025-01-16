@@ -70,6 +70,8 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
+      env:
+        DOTNET_INSTALL_DIR: '/home/runner/.dotnet'
     - name: Test C# example
       run: |
         cd csharp
