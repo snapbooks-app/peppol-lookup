@@ -47,6 +47,21 @@ Available in:
 - [PowerShell](powershell/) - using System.Net.Dns and Invoke-WebRequest
 - [Ruby](ruby/) - using Resolv and Net::HTTP
 - [Rust](rust/) - using ToSocketAddrs and reqwest
+- [TypeScript](typescript/) - using crypto, dns/promises and http
+- [Kotlin](kotlin/) - using InetAddress and HttpURLConnection
+- [Perl](perl/) - using Net::DNS and LWP::UserAgent
+- [Swift](swift/) - using Foundation and URLSession
+- [Elixir](elixir/) - using :inet_res and :httpc
+- [Scala](scala/) - using InetAddress and scala.io.Source
+- [Lua](lua/) - using socket.dns and socket.http
+- [Dart](dart/) - using dart:io and crypto
+- [F#](fsharp/) - using System.Net.Dns and HttpClient
+- [Clojure](clojure/) - using Java interop
+- [Haskell](haskell/) - using Network.DNS and HTTP libraries
+- [Nim](nim/) - using net and httpclient
+- [Crystal](crystal/) - using Socket and HTTP::Client
+- [Zig](zig/) - using std.net and std.http
+- [Groovy](groovy/) - using InetAddress and URL
 
 ## Documentation
 
