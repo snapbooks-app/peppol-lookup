@@ -12,9 +12,10 @@ Simple Bash implementation demonstrating PEPPOL participant lookup for Snapbooks
 ## Dependencies
 
 Uses standard Unix tools:
-- md5sum for hashing
-- host for DNS lookup
-- curl for HTTP requests
+- sha256sum for hashing
+- basenc or python3 for Base32 encoding
+- dig (from dnsutils/bind-tools) for NAPTR DNS lookup
+- curl for HTTPS requests
 - grep/sed for XML parsing
 
 ## Running the Example

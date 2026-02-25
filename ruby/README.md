@@ -12,9 +12,9 @@ Simple Ruby implementation demonstrating PEPPOL participant lookup for Snapbooks
 ## Dependencies
 
 No external dependencies required. Uses only Ruby standard libraries:
-- digest for MD5 hashing
-- resolv for DNS lookup
-- net/http for HTTP requests
+- digest for SHA-256 hashing
+- resolv for NAPTR DNS lookup
+- net/http for HTTPS requests
 - uri for URL encoding
 
 ## Running the Example

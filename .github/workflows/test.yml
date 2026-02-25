@@ -17,13 +17,15 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y host curl
+        sudo apt-get install -y dnsutils curl
 
     # Python
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+    - name: Install Python dependencies
+      run: pip install dnspython
     - name: Test Python example
       run: python3 python/peppol_lookup.py
 
@@ -112,56 +114,56 @@ jobs:
         test_example() {
           local example=$1
           echo "Testing $example"
-          
+
           # Run example and capture output
           output=$($example 2>&1)
-          
-          # Check for expected output
-          if ! echo "$output" | grep -q "SMP hostname: b-e258de9dbe1f34f17b55d5d3cc5e7a66"; then
-            echo "❌ $example did not produce expected SMP hostname"
+
+          # Check for SMP URL in output (NAPTR-based lookup returns an SMP URL)
+          if ! echo "$output" | grep -q "SMP URL: https\?://"; then
+            echo "❌ $example did not produce expected SMP URL"
             echo "Output was:"
             echo "$output"
             return 1
           fi
-          
+
           if ! echo "$output" | grep -q "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice"; then
             echo "❌ $example did not find Invoice document type"
             echo "Output was:"
             echo "$output"
             return 1
           fi
-          
+
           if ! echo "$output" | grep -q "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote"; then
             echo "❌ $example did not find CreditNote document type"
             echo "Output was:"
             echo "$output"
             return 1
           fi
-          
+
           echo "✅ $example passed"
           return 0
         }
-        
+
         # Test each example and collect failures
         failures=()
-        
+
         run_test() {
           local dir=$1
           local cmd=$2
           echo "Testing in directory: $dir"
           echo "Command: $cmd"
-          
+
           # Save current directory
           pushd "$dir" > /dev/null
-          
+
           if ! test_example "$cmd"; then
             failures+=("$dir: $cmd")
           fi
-          
+
           # Restore directory
           popd > /dev/null
         }
-        
+
         # Run all tests
         run_test "." "python3 python/peppol_lookup.py"
         run_test "." "node javascript/peppol-lookup.js"
@@ -173,12 +175,12 @@ jobs:
         run_test "." "pwsh powershell/peppol_lookup.ps1"
         run_test "." "ruby ruby/peppol_lookup.rb"
         run_test "rust" "cargo run"
-        
+
         # Report results
         if [ ${#failures[@]} -ne 0 ]; then
           echo "❌ The following tests failed:"
           printf '%s\n' "${failures[@]}"
           exit 1
         fi
-        
+
         echo "✅ All tests passed!"
