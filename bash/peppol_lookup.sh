@@ -28,18 +28,6 @@ SML_DOMAIN="edelivery.tech.ec.europa.eu"
 BIS_BILLING_INVOICE="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice"
 BIS_BILLING_CREDITNOTE="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote"
 
-# Base32 encode stdin bytes (RFC 4648)
-base32_encode() {
-    if command -v basenc > /dev/null 2>&1; then
-        basenc --base32
-    elif command -v python3 > /dev/null 2>&1; then
-        python3 -c "import sys, base64; sys.stdout.buffer.write(base64.b32encode(sys.stdin.buffer.read()))"
-    else
-        echo "Error: basenc or python3 required for base32 encoding" >&2
-        return 1
-    fi
-}
-
 # Step 1: Use SML (Service Metadata Locator) to find a participant's SMP URL
 #
 # The SML is like a phone book for the PEPPOL network. Given a participant's ID:
@@ -53,15 +41,17 @@ sml_lookup() {
     local identifier="$2"
     local sml_domain="${3:-$SML_DOMAIN}"
 
-    # Create SHA-256 hash of lowercase participant ID
+    # Create SHA-256 hash of lowercase participant ID, then base32 encode
     local participant_id
     participant_id=$(echo -n "$icd:$identifier" | tr '[:upper:]' '[:lower:]')
-    local sha256_hex
-    sha256_hex=$(echo -n "$participant_id" | sha256sum | cut -d' ' -f1)
 
-    # Convert hex to binary and base32 encode, strip trailing '=', lowercase
+    # Use python3 for reliable SHA-256 + base32 encoding
     local b32
-    b32=$(echo -n "$sha256_hex" | sed 's/../\\x&/g' | xargs printf '%b' | base32_encode | tr -d '=' | tr '[:upper:]' '[:lower:]')
+    b32=$(python3 -c "
+import hashlib, base64
+h = hashlib.sha256(b'$participant_id').digest()
+print(base64.b32encode(h).decode().rstrip('=').lower())
+")
 
     # Construct DNS name
     local dns_name="$b32.iso6523-actorid-upis.$sml_domain"
@@ -75,20 +65,17 @@ sml_lookup() {
     fi
 
     # Parse NAPTR record: find Meta:SMP with U flag
-    # Format: order preference "flags" "service" "regexp" replacement
+    # dig +short output format: order preference "flags" "service" "regexp" replacement
     local smp_url
     smp_url=$(echo "$naptr_output" | while IFS= read -r line; do
-        # Check for Meta:SMP service and U flag
-        if echo "$line" | grep -qi '"U".*"Meta:SMP"\|"Meta:SMP".*"U"'; then
+        if echo "$line" | grep -q '"Meta:SMP"'; then
             # Extract the regexp field (third quoted string)
             local regexp
-            regexp=$(echo "$line" | grep -oP '"[^"]*"' | sed -n '3p' | tr -d '"')
+            regexp=$(echo "$line" | sed 's/[^"]*"\([^"]*\)"/\1\n/g' | sed -n '3p')
             if [ -n "$regexp" ]; then
                 # Extract URL from regexp: !pattern!replacement!
                 local delim="${regexp:0:1}"
-                local url
-                url=$(echo "$regexp" | cut -d"$delim" -f3)
-                echo "$url"
+                echo "$regexp" | cut -d"$delim" -f3
                 break
             fi
         fi
