@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web;
 using System.Xml.Linq;
 using DnsClient;
+using DnsClient.Protocol;
 
 /*
 PEPPOL uses two key services to enable document exchange:
@@ -142,9 +142,9 @@ class Program
             var lookup = new LookupClient();
             var result = await lookup.QueryAsync(dnsName, QueryType.NAPTR);
 
-            foreach (var record in result.Answers.NaptrRecords())
+            foreach (var record in result.Answers.OfType<NAPtrRecord>())
             {
-                if (record.Service == "Meta:SMP" && record.Flags.ToUpper() == "U")
+                if (record.Services == "Meta:SMP" && record.Flags.ToUpper() == "U")
                 {
                     // Extract URL from NAPTR regexp field
                     // Format: !pattern!replacement! (first char is delimiter)
