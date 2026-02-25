@@ -76,10 +76,8 @@ fn sml_lookup(icd: &str, identifier: &str, sml_domain: &str) -> Option<String> {
             if parts.len() < 3 {
                 continue;
             }
-            let pattern = parts[1];
-            let replacement = parts[2];
-            let re = Regex::new(pattern).ok()?;
-            let smp_url = re.replace_all(&dns_name, replacement).to_string();
+            // replacement part contains the SMP URL
+            let smp_url = parts[2].to_string();
             return Some(smp_url);
         }
     }

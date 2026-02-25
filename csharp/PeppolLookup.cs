@@ -148,15 +148,13 @@ class Program
                 {
                     // Extract URL from NAPTR regexp field
                     // Format: !pattern!replacement! (first char is delimiter)
+                    // For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
                     var regexp = record.Regexp;
                     var delim = regexp[0];
                     var parts = regexp.Split(delim);
                     if (parts.Length >= 3)
                     {
-                        var pattern = parts[1];
-                        var replacement = parts[2];
-                        var smpUrl = Regex.Replace(dnsName, pattern, replacement);
-                        return smpUrl;
+                        return parts[2]; // replacement part contains the SMP URL
                     }
                 }
             }

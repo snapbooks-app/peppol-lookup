@@ -156,15 +156,12 @@ public class PeppolLookup {
                 // JNDI NAPTR format: "order preference flags service regexp replacement"
                 // Example: "100 10 U Meta:SMP !^.*$!https://smp.example.com/! ."
                 if (record.contains("Meta:SMP")) {
-                    // Extract regexp field - find the regex pattern between delimiters
-                    // The regexp is typically the 5th field
+                    // Extract SMP URL from regexp field
+                    // Format: !pattern!replacement! - replacement contains the SMP URL
                     Pattern regexpExtractor = Pattern.compile("!([^!]*)!([^!]*)!");
                     Matcher matcher = regexpExtractor.matcher(record);
                     if (matcher.find()) {
-                        String pattern = matcher.group(1);
-                        String replacement = matcher.group(2);
-                        String smpUrl = dnsName.replaceAll(pattern, replacement);
-                        return smpUrl;
+                        return matcher.group(2); // replacement part contains the SMP URL
                     }
                 }
             }

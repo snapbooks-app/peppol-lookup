@@ -79,13 +79,11 @@ def sml_lookup(icd, identifier, sml_domain = SML_DOMAIN)
       if record.services == 'Meta:SMP' && record.flags.upcase == 'U'
         # Extract URL from NAPTR regexp field
         # Format: !pattern!replacement! (first char is delimiter)
+        # For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
         regexp = record.regexp
         delim = regexp[0]
         parts = regexp.split(delim)
-        pattern = parts[1]
-        replacement = parts[2]
-        smp_url = dns_name.sub(Regexp.new(pattern), replacement)
-        return smp_url
+        return parts[2] # replacement part contains the SMP URL
       end
     end
   end

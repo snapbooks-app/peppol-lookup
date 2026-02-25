@@ -97,14 +97,8 @@ func smlLookup(icd, identifier string) string {
 				if len(parts) < 3 {
 					continue
 				}
-				pattern := parts[1]
-				replacement := parts[2]
-				re, err := regexp.Compile(pattern)
-				if err != nil {
-					continue
-				}
-				smpURL := re.ReplaceAllString(dnsName, replacement)
-				return smpURL
+				// replacement part contains the SMP URL
+				return parts[2]
 			}
 		}
 	}

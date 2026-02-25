@@ -88,13 +88,11 @@ function sml_lookup($icd, $identifier, $sml_domain = SML_DOMAIN) {
             && isset($record['flags']) && strtoupper($record['flags']) === 'U') {
             // Extract URL from NAPTR regex field
             // Format: !pattern!replacement! (first char is delimiter)
+            // For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
             $regexp = $record['regex'];
             $delim = $regexp[0];
             $parts = explode($delim, $regexp);
-            $pattern = $parts[1];
-            $replacement = $parts[2];
-            $smp_url = preg_replace('/' . $pattern . '/', $replacement, $dns_name);
-            return $smp_url;
+            return $parts[2]; // replacement part contains the SMP URL
         }
     }
 

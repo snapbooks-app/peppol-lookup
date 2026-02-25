@@ -87,13 +87,11 @@ async function smlLookup(icd, identifier, smlDomain = SML_DOMAIN) {
             if (record.service === 'Meta:SMP' && record.flags.toUpperCase() === 'U') {
                 // Extract URL from NAPTR regexp field
                 // Format: !pattern!replacement! (first char is delimiter)
+                // For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
                 const regexp = record.regexp;
                 const delim = regexp[0];
                 const parts = regexp.split(delim);
-                const pattern = parts[1];
-                const replacement = parts[2];
-                const smpUrl = dnsName.replace(new RegExp(pattern), replacement);
-                return smpUrl;
+                return parts[2]; // replacement part contains the SMP URL
             }
         }
         return null;

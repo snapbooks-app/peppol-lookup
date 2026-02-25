@@ -25,7 +25,6 @@ Requires: pip install dnspython
 
 import hashlib
 import base64
-import re
 import xml.etree.ElementTree as ET
 from urllib.request import urlopen, Request
 from urllib.parse import quote, unquote
@@ -63,12 +62,11 @@ def sml_lookup(icd: str, identifier: str, sml_domain: str = "edelivery.tech.ec.e
             if service == 'Meta:SMP' and flags.upper() == 'U':
                 # Extract URL from NAPTR regexp field
                 # Format: !pattern!replacement! (first char is delimiter)
+                # For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
                 regexp = rdata.regexp.decode()
                 delim = regexp[0]
                 parts = regexp.split(delim)
-                pattern = parts[1]
-                replacement = parts[2]
-                smp_url = re.sub(pattern, replacement, dns_name)
+                smp_url = parts[2]  # replacement part contains the SMP URL
                 return smp_url
     except Exception:
         return None

@@ -101,10 +101,7 @@ function Get-SmlLookup {
                         $regexp = $record.Regexp
                         $delim = $regexp[0]
                         $parts = $regexp.Split($delim)
-                        $pattern = $parts[1]
-                        $replacement = $parts[2]
-                        $smpUrl = [regex]::Replace($dnsName, $pattern, $replacement)
-                        return $smpUrl
+                        return $parts[2] # replacement part contains the SMP URL
                     }
                 }
             } catch {
@@ -127,10 +124,7 @@ function Get-SmlLookup {
                     $regexp = $quotes[2].Groups[1].Value
                     $delim = $regexp[0]
                     $parts = $regexp.Split($delim)
-                    $pattern = $parts[1]
-                    $replacement = $parts[2]
-                    $smpUrl = [regex]::Replace($dnsName, $pattern, $replacement)
-                    return $smpUrl
+                    return $parts[2] # replacement part contains the SMP URL
                 }
             }
         }
