@@ -18,10 +18,13 @@
 //! 3. Check for PEPPOL BIS Billing 3.0 support
 
 use data_encoding::BASE32;
+use hickory_proto::rr::{RData, RecordType};
+use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::Resolver;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::error::Error;
-use std::process::Command;
+use std::str::FromStr;
 
 // Test environment SML domain
 const SML_DOMAIN: &str = "edelivery.tech.ec.europa.eu";
@@ -56,39 +59,31 @@ fn sml_lookup(icd: &str, identifier: &str, sml_domain: &str) -> Option<String> {
     // Construct DNS name
     let dns_name = format!("{}.iso6523-actorid-upis.{}", b32, sml_domain);
 
-    // Perform NAPTR DNS lookup using dig command
-    let output = Command::new("dig")
-        .args(&["+short", "-t", "naptr", &dns_name])
-        .output()
-        .ok()?;
+    // Perform NAPTR DNS lookup using hickory-resolver
+    let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default()).ok()?;
+    let name = hickory_proto::rr::Name::from_str(&format!("{}.", dns_name)).ok()?;
+    let response = resolver.lookup(name, RecordType::NAPTR).ok()?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout.trim().is_empty() {
-        return None;
-    }
-
-    // Parse dig output: order preference "flags" "service" "regexp" replacement
-    let quote_re = Regex::new(r#""([^"]*)""#).ok()?;
-    for line in stdout.lines() {
-        if !line.contains("\"Meta:SMP\"") {
-            continue;
+    for rdata in response.iter() {
+        if let RData::NAPTR(ref naptr) = rdata {
+            let services = std::str::from_utf8(naptr.services()).unwrap_or("");
+            let flags = std::str::from_utf8(naptr.flags()).unwrap_or("");
+            if services == "Meta:SMP" && flags.eq_ignore_ascii_case("u") {
+                // Extract URL from NAPTR regexp field
+                // Format: !pattern!replacement! (first char is delimiter)
+                let regexp = std::str::from_utf8(naptr.regexp()).unwrap_or("");
+                if regexp.len() < 3 {
+                    continue;
+                }
+                let delim = &regexp[0..1];
+                let parts: Vec<&str> = regexp.splitn(4, delim).collect();
+                if parts.len() < 3 {
+                    continue;
+                }
+                // replacement part contains the SMP URL
+                return Some(parts[2].to_string());
+            }
         }
-        // Extract quoted fields: flags, service, regexp
-        let captures: Vec<_> = quote_re.captures_iter(line).collect();
-        if captures.len() < 3 {
-            continue;
-        }
-        let regexp = &captures[2][1]; // 3rd quoted string is the regexp field
-        if regexp.len() < 3 {
-            continue;
-        }
-        let delim = &regexp[0..1];
-        let parts: Vec<&str> = regexp.splitn(4, delim).collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        // replacement part contains the SMP URL
-        return Some(parts[2].to_string());
     }
 
     None

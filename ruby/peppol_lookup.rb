@@ -20,8 +20,45 @@
 # 3. Check for PEPPOL BIS Billing 3.0 support
 
 require 'digest'
+require 'resolv'
 require 'net/http'
 require 'uri'
+
+# Define NAPTR resource type (not included in Ruby's stdlib Resolv)
+module Resolv
+  class DNS
+    module Resource
+      module IN
+        class NAPTR < Resource
+          TypeValue = 35
+          ClassValue = ClassValue
+          ClassHash[[TypeValue, ClassValue]] = self
+
+          def initialize(order, preference, flags, services, regexp, replacement)
+            @order = order
+            @preference = preference
+            @flags = flags
+            @services = services
+            @regexp = regexp
+            @replacement = replacement
+          end
+
+          attr_reader :order, :preference, :flags, :services, :regexp, :replacement
+
+          def self.decode_rdata(msg) # :nodoc:
+            order, = msg.get_unpack('n')
+            preference, = msg.get_unpack('n')
+            flags = msg.get_string
+            services = msg.get_string
+            regexp = msg.get_string
+            replacement = msg.get_name
+            new(order, preference, flags, services, regexp, replacement)
+          end
+        end
+      end
+    end
+  end
+end
 
 # Test environment SML domain
 SML_DOMAIN = 'edelivery.tech.ec.europa.eu'
@@ -71,20 +108,19 @@ def sml_lookup(icd, identifier, sml_domain = SML_DOMAIN)
   # Construct DNS name
   dns_name = "#{b32}.iso6523-actorid-upis.#{sml_domain}"
 
-  # Perform NAPTR DNS lookup using dig (Ruby's Resolv does not support NAPTR)
-  output = `dig +short -t naptr #{dns_name} 2>/dev/null`
-  return nil if output.nil? || output.strip.empty?
-
-  output.each_line do |line|
-    next unless line.include?('"Meta:SMP"')
-    # Extract the regexp field (3rd quoted string in dig output)
-    quoted = line.scan(/"([^"]*)"/)
-    next unless quoted.length >= 3
-    regexp = quoted[2][0]
-    next if regexp.nil? || regexp.empty?
-    delim = regexp[0]
-    parts = regexp.split(delim)
-    return parts[2] if parts.length >= 3
+  # Perform NAPTR DNS lookup using Ruby's Resolv with custom NAPTR type
+  Resolv::DNS.open do |dns|
+    resources = dns.getresources(dns_name, Resolv::DNS::Resource::IN::NAPTR)
+    resources.each do |record|
+      if record.services == 'Meta:SMP' && record.flags.upcase == 'U'
+        # Extract URL from NAPTR regexp field
+        # Format: !pattern!replacement! (first char is delimiter)
+        regexp = record.regexp
+        delim = regexp[0]
+        parts = regexp.split(delim)
+        return parts[2] if parts.length >= 3
+      end
+    end
   end
 
   nil
