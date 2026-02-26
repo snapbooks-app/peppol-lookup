@@ -20,7 +20,6 @@
 # 3. Check for PEPPOL BIS Billing 3.0 support
 
 require 'digest'
-require 'resolv'
 require 'net/http'
 require 'uri'
 
@@ -72,20 +71,20 @@ def sml_lookup(icd, identifier, sml_domain = SML_DOMAIN)
   # Construct DNS name
   dns_name = "#{b32}.iso6523-actorid-upis.#{sml_domain}"
 
-  # Perform NAPTR DNS lookup
-  Resolv::DNS.open do |dns|
-    resources = dns.getresources(dns_name, Resolv::DNS::Resource::IN::NAPTR)
-    resources.each do |record|
-      if record.services == 'Meta:SMP' && record.flags.upcase == 'U'
-        # Extract URL from NAPTR regexp field
-        # Format: !pattern!replacement! (first char is delimiter)
-        # For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
-        regexp = record.regexp
-        delim = regexp[0]
-        parts = regexp.split(delim)
-        return parts[2] # replacement part contains the SMP URL
-      end
-    end
+  # Perform NAPTR DNS lookup using dig (Ruby's Resolv does not support NAPTR)
+  output = `dig +short -t naptr #{dns_name} 2>/dev/null`
+  return nil if output.nil? || output.strip.empty?
+
+  output.each_line do |line|
+    next unless line.include?('"Meta:SMP"')
+    # Extract the regexp field (3rd quoted string in dig output)
+    quoted = line.scan(/"([^"]*)"/)
+    next unless quoted.length >= 3
+    regexp = quoted[2][0]
+    next if regexp.nil? || regexp.empty?
+    delim = regexp[0]
+    parts = regexp.split(delim)
+    return parts[2] if parts.length >= 3
   end
 
   nil
