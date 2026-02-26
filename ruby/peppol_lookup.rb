@@ -25,9 +25,9 @@ require 'net/http'
 require 'uri'
 
 # Define NAPTR resource type (not included in Ruby's stdlib Resolv)
-module Resolv
+class Resolv
   class DNS
-    module Resource
+    class Resource
       module IN
         class NAPTR < Resource
           TypeValue = 35
