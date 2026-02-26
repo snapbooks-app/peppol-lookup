@@ -19,7 +19,7 @@
 # 2. Query their SMP to discover what documents they can receive
 # 3. Check for PEPPOL BIS Billing 3.0 support
 #
-# Requires: dig (from dnsutils/bind-tools), curl, sha256sum, basenc or python3
+# Requires: dig (from dnsutils/bind-tools), curl, sha256sum, xxd, basenc (coreutils)
 
 # Test environment SML domain
 SML_DOMAIN="edelivery.tech.ec.europa.eu"
@@ -45,13 +45,10 @@ sml_lookup() {
     local participant_id
     participant_id=$(echo -n "$icd:$identifier" | tr '[:upper:]' '[:lower:]')
 
-    # Use python3 for reliable SHA-256 + base32 encoding
-    local b32
-    b32=$(python3 -c "
-import hashlib, base64
-h = hashlib.sha256(b'$participant_id').digest()
-print(base64.b32encode(h).decode().rstrip('=').lower())
-")
+    # SHA-256 hash -> raw bytes -> base32 encode (using coreutils sha256sum + basenc)
+    local hex b32
+    hex=$(echo -n "$participant_id" | sha256sum | cut -d' ' -f1)
+    b32=$(printf '%b' "$(echo "$hex" | sed 's/../\\x&/g')" | basenc --base32 | tr -d '=' | tr '[:upper:]' '[:lower:]')
 
     # Construct DNS name
     local dns_name="$b32.iso6523-actorid-upis.$sml_domain"
@@ -108,8 +105,9 @@ smp_lookup() {
     local participant_id="$icd:$identifier"
     local url="${smp_url}iso6523-actorid-upis::$(urlencode "$participant_id")"
 
-    # Perform HTTPS GET request and extract document types
-    curl -s "$url" | grep -o 'busdox-docid-qns::[^#]*' | sed 's/busdox-docid-qns:://'
+    # Perform HTTPS GET request, URL-decode response, and extract document types
+    # sed decodes %3A->: %2F->/ %23-># which are common in SMP href attributes
+    curl -s "$url" | sed 's/%3[Aa]/:/g; s/%2[Ff]/\//g; s/%23/#/g' | grep -o 'busdox-docid-qns::[^#"]*' | sed 's/busdox-docid-qns:://'
 }
 
 # URL encode a string

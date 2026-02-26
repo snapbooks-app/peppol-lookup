@@ -116,7 +116,7 @@ jobs:
           echo "Testing $example"
 
           # Run example and capture output
-          output=$($example 2>&1)
+          output=$(eval "$example" 2>&1)
 
           # Check for SMP URL in output (NAPTR-based lookup returns an SMP URL)
           if ! echo "$output" | grep -q "SMP URL: https\?://"; then
