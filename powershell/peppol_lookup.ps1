@@ -113,27 +113,27 @@ function Resolve-NaptrRaw {
     $response = $udp.Receive([ref]$remoteEP)
     $udp.Close()
 
-    # Parse response
-    $pos = 0
+    # Parse response using a hashtable for shared mutable cursor position
+    # (scriptblocks invoked with & run in child scope, so a reference type is needed)
+    $ctx = @{ pos = 0 }
 
     # Helper: read 16-bit unsigned integer (big-endian)
     $readUInt16 = {
-        $val = ([int]$response[$script:pos] -shl 8) -bor [int]$response[$script:pos + 1]
-        $script:pos += 2
+        $val = ([int]$response[$ctx.pos] -shl 8) -bor [int]$response[$ctx.pos + 1]
+        $ctx.pos += 2
         return $val
     }
 
     # Helper: read DNS name (handles compression pointers)
     $readName = {
-        param([int]$startPos = -1)
-        $p = if ($startPos -ge 0) { $startPos } else { $script:pos }
+        $p = $ctx.pos
         $jumped = $false
         $labels = @()
         while ($response[$p] -ne 0) {
             if (($response[$p] -band 0xC0) -eq 0xC0) {
                 # Compression pointer
                 $ptr = (([int]$response[$p] -band 0x3F) -shl 8) -bor [int]$response[$p + 1]
-                if (-not $jumped) { $script:pos = $p + 2; $jumped = $true }
+                if (-not $jumped) { $ctx.pos = $p + 2; $jumped = $true }
                 $p = $ptr
             } else {
                 $len = [int]$response[$p]; $p++
@@ -141,20 +141,19 @@ function Resolve-NaptrRaw {
                 $p += $len
             }
         }
-        if (-not $jumped) { $script:pos = $p + 1 }
+        if (-not $jumped) { $ctx.pos = $p + 1 }
         return ($labels -join '.')
     }
 
     # Helper: read DNS character string (length-prefixed)
     $readString = {
-        $len = [int]$response[$script:pos]; $script:pos++
-        $str = [System.Text.Encoding]::ASCII.GetString($response, $script:pos, $len)
-        $script:pos += $len
+        $len = [int]$response[$ctx.pos]; $ctx.pos++
+        $str = [System.Text.Encoding]::ASCII.GetString($response, $ctx.pos, $len)
+        $ctx.pos += $len
         return $str
     }
 
-    # Skip header (already have it)
-    $pos = 0
+    # Parse header
     $null = & $readUInt16  # ID
     $null = & $readUInt16  # Flags
     $qdCount = & $readUInt16
@@ -175,7 +174,7 @@ function Resolve-NaptrRaw {
         $null = & $readName   # Name
         $rType = & $readUInt16   # Type
         $null = & $readUInt16    # Class
-        $pos += 4                # Skip TTL (4 bytes)
+        $ctx.pos += 4            # Skip TTL (4 bytes)
         $rdLength = & $readUInt16  # RDLENGTH
 
         if ($rType -eq 35) {
@@ -197,7 +196,7 @@ function Resolve-NaptrRaw {
             }
         } else {
             # Skip unknown record type
-            $pos += $rdLength
+            $ctx.pos += $rdLength
         }
     }
 
