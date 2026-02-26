@@ -18,11 +18,10 @@
 //! 3. Check for PEPPOL BIS Billing 3.0 support
 
 use data_encoding::BASE32;
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::Resolver;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::error::Error;
+use std::process::Command;
 
 // Test environment SML domain
 const SML_DOMAIN: &str = "edelivery.tech.ec.europa.eu";
@@ -57,29 +56,39 @@ fn sml_lookup(icd: &str, identifier: &str, sml_domain: &str) -> Option<String> {
     // Construct DNS name
     let dns_name = format!("{}.iso6523-actorid-upis.{}", b32, sml_domain);
 
-    // Perform NAPTR DNS lookup
-    let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default()).ok()?;
-    let response = resolver.naptr_lookup(&dns_name).ok()?;
+    // Perform NAPTR DNS lookup using dig command
+    let output = Command::new("dig")
+        .args(&["+short", "-t", "naptr", &dns_name])
+        .output()
+        .ok()?;
 
-    for record in response.iter() {
-        let service = record.service().to_string();
-        let flags = record.flags().to_string();
-        if service == "Meta:SMP" && flags.to_uppercase() == "U" {
-            // Extract URL from NAPTR regexp field
-            // Format: !pattern!replacement! (first char is delimiter)
-            let regexp = record.regexp().to_string();
-            if regexp.len() < 3 {
-                continue;
-            }
-            let delim = &regexp[0..1];
-            let parts: Vec<&str> = regexp.splitn(4, delim).collect();
-            if parts.len() < 3 {
-                continue;
-            }
-            // replacement part contains the SMP URL
-            let smp_url = parts[2].to_string();
-            return Some(smp_url);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() {
+        return None;
+    }
+
+    // Parse dig output: order preference "flags" "service" "regexp" replacement
+    let quote_re = Regex::new(r#""([^"]*)""#).ok()?;
+    for line in stdout.lines() {
+        if !line.contains("\"Meta:SMP\"") {
+            continue;
         }
+        // Extract quoted fields: flags, service, regexp
+        let captures: Vec<_> = quote_re.captures_iter(line).collect();
+        if captures.len() < 3 {
+            continue;
+        }
+        let regexp = &captures[2][1]; // 3rd quoted string is the regexp field
+        if regexp.len() < 3 {
+            continue;
+        }
+        let delim = &regexp[0..1];
+        let parts: Vec<&str> = regexp.splitn(4, delim).collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        // replacement part contains the SMP URL
+        return Some(parts[2].to_string());
     }
 
     None
