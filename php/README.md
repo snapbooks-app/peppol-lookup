@@ -12,9 +12,9 @@ Simple PHP implementation demonstrating PEPPOL participant lookup for Snapbooks 
 ## Dependencies
 
 No external dependencies required. Uses only PHP built-in functions:
-- md5() for hashing
-- gethostbyname() for DNS lookup
-- file_get_contents() for HTTP requests
+- hash() for SHA-256 hashing
+- dns_get_record() for NAPTR DNS lookup
+- file_get_contents() for HTTPS requests
 - preg_match_all() for XML parsing
 
 ## Running the Example

@@ -12,8 +12,9 @@ Simple Java implementation demonstrating PEPPOL participant lookup for Snapbooks
 ## Dependencies
 
 No external dependencies required. Uses only Java standard libraries:
-- java.net for DNS and HTTP operations
-- java.security for MD5 hashing
+- java.security for SHA-256 hashing
+- javax.naming (JNDI) for NAPTR DNS lookup
+- java.net for HTTPS requests
 - javax.xml for XML parsing
 
 ## Running the Example

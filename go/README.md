@@ -11,10 +11,11 @@ Simple Go implementation demonstrating PEPPOL participant lookup for Snapbooks A
 
 ## Dependencies
 
-No external dependencies required. Uses only Go standard library:
-- crypto/md5 for hashing
-- net for DNS lookup
-- net/http for HTTP requests
+Uses Go standard library and one external dependency:
+- crypto/sha256 for hashing
+- encoding/base32 for Base32 encoding
+- github.com/miekg/dns for NAPTR DNS lookup
+- net/http for HTTPS requests
 - regexp for XML parsing
 
 ## Running the Example

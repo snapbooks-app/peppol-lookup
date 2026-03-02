@@ -11,14 +11,16 @@ Simple Python implementation demonstrating PEPPOL participant lookup for Snapboo
 
 ## Dependencies
 
-No external dependencies required. Uses only Python standard library:
-- hashlib for MD5 hashing
-- socket for DNS lookup
-- urllib for HTTP requests
+Requires the `dnspython` package for NAPTR DNS lookups:
+- hashlib for SHA-256 hashing
+- base64 for Base32 encoding
+- dns.resolver (dnspython) for NAPTR DNS lookup
+- urllib for HTTPS requests
 - xml.etree for XML parsing
 
 ## Running the Example
 
 ```bash
+pip install dnspython
 python3 peppol_lookup.py
 ```

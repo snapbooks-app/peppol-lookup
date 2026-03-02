@@ -12,9 +12,9 @@ Simple Node.js implementation demonstrating PEPPOL participant lookup for Snapbo
 ## Dependencies
 
 No external dependencies required. Uses only Node.js built-in modules:
-- crypto for MD5 hashing
-- dns for DNS lookup
-- http for HTTP requests
+- crypto for SHA-256 hashing
+- dns for NAPTR DNS lookup (dns.resolveNaptr)
+- https for HTTPS requests
 
 ## Running the Example
 

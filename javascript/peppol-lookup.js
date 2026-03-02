@@ -6,7 +6,7 @@
  * 1. SML (Service Metadata Locator):
  *    - Acts as a DNS-based directory service
  *    - Maps a participant's ID to their SMP provider
- *    - Uses DNS lookup to find where a participant's metadata is hosted
+ *    - Uses NAPTR DNS records to find where a participant's metadata is hosted
  *    - Similar to how email's MX records help find mail servers
  *
  * 2. SMP (Service Metadata Publisher):
@@ -16,14 +16,14 @@
  *    - Acts like a participant's business card in the network
  *
  * This example demonstrates how to:
- * 1. Use SML to find where a participant's metadata is hosted
+ * 1. Use SML to find where a participant's metadata is hosted (via NAPTR DNS lookup)
  * 2. Query their SMP to discover what documents they can receive
  * 3. Check for PEPPOL BIS Billing 3.0 support
  */
 
 const crypto = require('crypto');
 const dns = require('dns').promises;
-const http = require('http');
+const https = require('https');
 
 // Test environment SML domain
 const SML_DOMAIN = 'edelivery.tech.ec.europa.eu';
@@ -33,28 +33,68 @@ const BIS_BILLING_INVOICE = 'urn:oasis:names:specification:ubl:schema:xsd:Invoic
 const BIS_BILLING_CREDITNOTE = 'urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote';
 
 /**
- * Step 1: Use SML (Service Metadata Locator) to find a participant's SMP hostname
+ * Base32 encode a Buffer (RFC 4648 standard alphabet)
+ */
+function base32Encode(buffer) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let result = '';
+    let bits = 0;
+    let value = 0;
+
+    for (const byte of buffer) {
+        value = (value << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+            result += alphabet[(value >>> (bits - 5)) & 31];
+            bits -= 5;
+        }
+    }
+
+    if (bits > 0) {
+        result += alphabet[(value << (5 - bits)) & 31];
+    }
+
+    return result;
+}
+
+/**
+ * Step 1: Use SML (Service Metadata Locator) to find a participant's SMP URL
  *
  * The SML is like a phone book for the PEPPOL network. Given a participant's ID:
- * 1. Create an MD5 hash of their ID (e.g., "0192:921605900")
- * 2. Use the hash to construct a DNS hostname
- * 3. If the hostname exists, the participant is registered in PEPPOL
- * 4. The hostname tells us where to find their metadata (SMP)
+ * 1. Create a SHA-256 hash of their lowercase ID (e.g., "0192:921605900")
+ * 2. Base32-encode the hash (lowercase, strip trailing '=')
+ * 3. Use the encoded hash to construct a DNS name
+ * 4. Perform a NAPTR DNS lookup to get the SMP URL
+ * 5. Extract the SMP URL from the NAPTR record's regexp field
  *
- * Returns the SMP hostname if found, null if not found
+ * Returns the SMP URL if found, null if not found
  */
 async function smlLookup(icd, identifier, smlDomain = SML_DOMAIN) {
     try {
-        // Create MD5 hash of participant ID
+        // Create SHA-256 hash of lowercase participant ID
         const participantId = `${icd}:${identifier}`;
-        const md5Hash = crypto.createHash('md5').update(participantId).digest('hex');
-        
-        // Construct hostname
-        const hostname = `b-${md5Hash}.iso6523-actorid-upis.${smlDomain}`;
-        
-        // Check if hostname exists
-        await dns.lookup(hostname);
-        return hostname;
+        const sha256Hash = crypto.createHash('sha256').update(participantId.toLowerCase()).digest();
+
+        // Base32 encode, strip trailing '=', lowercase
+        const b32 = base32Encode(sha256Hash).replace(/=+$/, '').toLowerCase();
+
+        // Construct DNS name
+        const dnsName = `${b32}.iso6523-actorid-upis.${smlDomain}`;
+
+        // Perform NAPTR DNS lookup
+        const records = await dns.resolveNaptr(dnsName);
+        for (const record of records) {
+            if (record.service === 'Meta:SMP' && record.flags.toUpperCase() === 'U') {
+                // Extract URL from NAPTR regexp field
+                // Format: !pattern!replacement! (first char is delimiter)
+                // For PEPPOL, the pattern is always ^.*$ and replacement is the SMP URL
+                const regexp = record.regexp;
+                const delim = regexp[0];
+                const parts = regexp.split(delim);
+                return parts[2]; // replacement part contains the SMP URL
+            }
+        }
+        return null;
     } catch (error) {
         return null;
     }
@@ -71,28 +111,29 @@ async function smlLookup(icd, identifier, smlDomain = SML_DOMAIN) {
  * This is similar to how DNS MX records tell you where to send email,
  * but SMP also includes what "types" of messages you can send.
  */
-async function smpLookup(smpHostname, icd, identifier) {
+async function smpLookup(smpUrl, icd, identifier) {
     return new Promise((resolve, reject) => {
         // Construct SMP URL
-        // Format: http://[SMP hostname]/[identifier scheme]::[participant identifier]
+        // Format: {smp_url}/[identifier scheme]::[participant identifier]
         const participantId = `${icd}:${identifier}`;
-        const url = `http://${smpHostname}/iso6523-actorid-upis::${encodeURIComponent(participantId)}`;
-        
-        http.get(url, (res) => {
+        if (!smpUrl.endsWith('/')) smpUrl += '/';
+        const url = `${smpUrl}iso6523-actorid-upis::${encodeURIComponent(participantId)}`;
+
+        https.get(url, (res) => {
             let data = '';
-            
+
             res.on('data', (chunk) => {
                 data += chunk;
             });
-            
+
             res.on('end', () => {
                 try {
                     const documentTypes = [];
-                    
+
                     // Extract document types using regex
                     const regex = /ServiceMetadataReference[^>]*href="([^"]*)"[^>]*>/g;
                     let match;
-                    
+
                     while ((match = regex.exec(data)) !== null) {
                         const href = decodeURIComponent(match[1]);
                         if (href.includes('busdox-docid-qns::')) {
@@ -100,9 +141,9 @@ async function smpLookup(smpHostname, icd, identifier) {
                             documentTypes.push(docType);
                         }
                     }
-                    
+
                     resolve(documentTypes);
-                    
+
                 } catch (error) {
                     reject(new Error(`Failed to parse SMP response: ${error.message}`));
                 }
@@ -118,22 +159,22 @@ async function main() {
         // Snapbooks AS (Norwegian organization number)
         const icd = '0192';
         const identifier = '921605900';
-        
-        // Step 1: Use SML to find where participant's metadata is hosted
-        const smpHostname = await smlLookup(icd, identifier);
-        if (!smpHostname) {
+
+        // Step 1: Use SML to find where participant's metadata is hosted (NAPTR lookup)
+        const smpUrl = await smlLookup(icd, identifier);
+        if (!smpUrl) {
             console.log(`Not a PEPPOL participant: ${icd}:${identifier}`);
             return;
         }
-        console.log(`SMP hostname: ${smpHostname}`);
-        
+        console.log(`SMP URL: ${smpUrl}`);
+
         // Step 2: Query their SMP to discover supported documents
-        const documentTypes = await smpLookup(smpHostname, icd, identifier);
+        const documentTypes = await smpLookup(smpUrl, icd, identifier);
         console.log('\nSupported document identifiers:');
         documentTypes.forEach(docType => {
             console.log(`- ${docType}`);
         });
-        
+
         // Check for PEPPOL BIS Billing 3.0 documents
         console.log('\nPEPPOL BIS Billing 3.0 Support:');
         if (documentTypes.includes(BIS_BILLING_INVOICE)) {
@@ -142,7 +183,7 @@ async function main() {
         if (documentTypes.includes(BIS_BILLING_CREDITNOTE)) {
             console.log('- Supports Credit Note');
         }
-        
+
     } catch (error) {
         console.error(`Error: ${error.message}`);
     }

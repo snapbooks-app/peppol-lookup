@@ -11,9 +11,11 @@ Simple Rust implementation demonstrating PEPPOL participant lookup for Snapbooks
 
 ## Dependencies
 
-Uses minimal dependencies from crates.io:
-- md-5 for MD5 hashing
-- reqwest for HTTP requests
+Uses dependencies from crates.io:
+- sha2 for SHA-256 hashing
+- data-encoding for Base32 encoding
+- hickory-resolver for NAPTR DNS lookup
+- reqwest for HTTPS requests
 - regex for XML parsing
 - urlencoding for URL encoding
 

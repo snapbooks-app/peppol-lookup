@@ -11,13 +11,14 @@ Simple C# implementation demonstrating PEPPOL participant lookup for Snapbooks A
 
 ## Dependencies
 
-No external dependencies required. Uses only .NET standard libraries:
-- System.Net for DNS and HTTP operations
-- System.Security.Cryptography for MD5 hashing
+Uses .NET standard libraries and one NuGet package:
+- System.Security.Cryptography for SHA-256 hashing
+- DnsClient (NuGet) for NAPTR DNS lookup
+- System.Net.Http for HTTPS requests
 - System.Xml.Linq for XML parsing
 
 ## Running the Example
 
 ```bash
-dotnet run PeppolLookup.cs
+dotnet run
 ```

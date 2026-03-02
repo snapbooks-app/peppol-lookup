@@ -3,7 +3,7 @@
 # 1. SML (Service Metadata Locator):
 #    - Acts as a DNS-based directory service
 #    - Maps a participant's ID to their SMP provider
-#    - Uses DNS lookup to find where a participant's metadata is hosted
+#    - Uses NAPTR DNS records to find where a participant's metadata is hosted
 #    - Similar to how email's MX records help find mail servers
 #
 # 2. SMP (Service Metadata Publisher):
@@ -13,9 +13,11 @@
 #    - Acts like a participant's business card in the network
 #
 # This example demonstrates how to:
-# 1. Use SML to find where a participant's metadata is hosted
+# 1. Use SML to find where a participant's metadata is hosted (via NAPTR DNS lookup)
 # 2. Query their SMP to discover what documents they can receive
 # 3. Check for PEPPOL BIS Billing 3.0 support
+#
+# Uses Resolve-DnsName on Windows, raw UDP DNS queries via .NET sockets on Linux
 
 # Test environment SML domain
 $SML_DOMAIN = "edelivery.tech.ec.europa.eu"
@@ -24,18 +26,196 @@ $SML_DOMAIN = "edelivery.tech.ec.europa.eu"
 $BIS_BILLING_INVOICE = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice"
 $BIS_BILLING_CREDITNOTE = "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote"
 
+# Base32 alphabet (RFC 4648)
+$BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
 <#
 .SYNOPSIS
-Step 1: Use SML (Service Metadata Locator) to find a participant's SMP hostname
+Base32 encode a byte array (RFC 4648)
+#>
+function ConvertTo-Base32 {
+    param([byte[]]$Data)
+
+    $result = [System.Text.StringBuilder]::new()
+    $bits = 0
+    $value = 0
+
+    foreach ($b in $Data) {
+        $value = ($value -shl 8) -bor $b
+        $bits += 8
+        while ($bits -ge 5) {
+            $index = ($value -shr ($bits - 5)) -band 31
+            [void]$result.Append($BASE32_ALPHABET[$index])
+            $bits -= 5
+        }
+    }
+
+    if ($bits -gt 0) {
+        $index = ($value -shl (5 - $bits)) -band 31
+        [void]$result.Append($BASE32_ALPHABET[$index])
+    }
+
+    return $result.ToString()
+}
+
+<#
+.SYNOPSIS
+Perform a raw UDP DNS query for NAPTR records using .NET sockets
+
+.DESCRIPTION
+Constructs a DNS query packet, sends it via UDP, and parses the NAPTR
+response records. Used on Linux where Resolve-DnsName is unavailable.
+#>
+function Resolve-NaptrRaw {
+    param([string]$Name)
+
+    # Build DNS query packet
+    $ms = [System.IO.MemoryStream]::new()
+    $bw = [System.IO.BinaryWriter]::new($ms)
+
+    # Header: ID, Flags(RD=1), QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
+    $queryId = Get-Random -Maximum 65535
+    $bw.Write([byte](($queryId -shr 8) -band 0xFF))
+    $bw.Write([byte]($queryId -band 0xFF))
+    $bw.Write([byte]0x01); $bw.Write([byte]0x00)  # Flags: RD=1
+    $bw.Write([byte]0x00); $bw.Write([byte]0x01)  # QDCOUNT=1
+    $bw.Write([byte]0x00); $bw.Write([byte]0x00)  # ANCOUNT=0
+    $bw.Write([byte]0x00); $bw.Write([byte]0x00)  # NSCOUNT=0
+    $bw.Write([byte]0x00); $bw.Write([byte]0x00)  # ARCOUNT=0
+
+    # Encode domain name as labels
+    foreach ($label in $Name.TrimEnd('.').Split('.')) {
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes($label)
+        $bw.Write([byte]$bytes.Length)
+        $bw.Write($bytes)
+    }
+    $bw.Write([byte]0)  # Root label
+
+    # Question: Type=NAPTR(35), Class=IN(1)
+    $bw.Write([byte]0x00); $bw.Write([byte]0x23)  # Type NAPTR = 35
+    $bw.Write([byte]0x00); $bw.Write([byte]0x01)  # Class IN = 1
+
+    $queryBytes = $ms.ToArray()
+    $bw.Close(); $ms.Close()
+
+    # Get system DNS server from /etc/resolv.conf or use fallback
+    $dnsServer = "8.8.8.8"
+    if (Test-Path /etc/resolv.conf) {
+        $ns = Get-Content /etc/resolv.conf | Where-Object { $_ -match '^\s*nameserver\s+(\S+)' } | Select-Object -First 1
+        if ($ns -match 'nameserver\s+(\S+)') { $dnsServer = $Matches[1] }
+    }
+
+    # Send UDP query and receive response
+    $udp = [System.Net.Sockets.UdpClient]::new()
+    $udp.Client.ReceiveTimeout = 5000
+    [void]$udp.Send($queryBytes, $queryBytes.Length, $dnsServer, 53)
+    $remoteEP = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+    $response = $udp.Receive([ref]$remoteEP)
+    $udp.Close()
+
+    # Parse response using a hashtable for shared mutable cursor position
+    # (scriptblocks invoked with & run in child scope, so a reference type is needed)
+    $ctx = @{ pos = 0 }
+
+    # Helper: read 16-bit unsigned integer (big-endian)
+    $readUInt16 = {
+        $val = ([int]$response[$ctx.pos] -shl 8) -bor [int]$response[$ctx.pos + 1]
+        $ctx.pos += 2
+        return $val
+    }
+
+    # Helper: read DNS name (handles compression pointers)
+    $readName = {
+        $p = $ctx.pos
+        $jumped = $false
+        $labels = @()
+        while ($response[$p] -ne 0) {
+            if (($response[$p] -band 0xC0) -eq 0xC0) {
+                # Compression pointer
+                $ptr = (([int]$response[$p] -band 0x3F) -shl 8) -bor [int]$response[$p + 1]
+                if (-not $jumped) { $ctx.pos = $p + 2; $jumped = $true }
+                $p = $ptr
+            } else {
+                $len = [int]$response[$p]; $p++
+                $labels += [System.Text.Encoding]::ASCII.GetString($response, $p, $len)
+                $p += $len
+            }
+        }
+        if (-not $jumped) { $ctx.pos = $p + 1 }
+        return ($labels -join '.')
+    }
+
+    # Helper: read DNS character string (length-prefixed)
+    $readString = {
+        $len = [int]$response[$ctx.pos]; $ctx.pos++
+        $str = [System.Text.Encoding]::ASCII.GetString($response, $ctx.pos, $len)
+        $ctx.pos += $len
+        return $str
+    }
+
+    # Parse header
+    $null = & $readUInt16  # ID
+    $null = & $readUInt16  # Flags
+    $qdCount = & $readUInt16
+    $anCount = & $readUInt16
+    $null = & $readUInt16  # NSCOUNT
+    $null = & $readUInt16  # ARCOUNT
+
+    # Skip question section
+    for ($i = 0; $i -lt $qdCount; $i++) {
+        $null = & $readName  # Name
+        $null = & $readUInt16  # Type
+        $null = & $readUInt16  # Class
+    }
+
+    # Parse answer records
+    $results = @()
+    for ($i = 0; $i -lt $anCount; $i++) {
+        $null = & $readName   # Name
+        $rType = & $readUInt16   # Type
+        $null = & $readUInt16    # Class
+        $ctx.pos += 4            # Skip TTL (4 bytes)
+        $rdLength = & $readUInt16  # RDLENGTH
+
+        if ($rType -eq 35) {
+            # NAPTR record: ORDER(2) + PREFERENCE(2) + FLAGS(str) + SERVICES(str) + REGEXP(str) + REPLACEMENT(name)
+            $order = & $readUInt16
+            $preference = & $readUInt16
+            $flags = & $readString
+            $services = & $readString
+            $regexp = & $readString
+            $replacement = & $readName
+
+            $results += [PSCustomObject]@{
+                Order       = $order
+                Preference  = $preference
+                Flags       = $flags
+                Services    = $services
+                Regexp      = $regexp
+                Replacement = $replacement
+            }
+        } else {
+            # Skip unknown record type
+            $ctx.pos += $rdLength
+        }
+    }
+
+    return $results
+}
+
+<#
+.SYNOPSIS
+Step 1: Use SML (Service Metadata Locator) to find a participant's SMP URL
 
 .DESCRIPTION
 The SML is like a phone book for the PEPPOL network. Given a participant's ID:
-1. Create an MD5 hash of their ID (e.g., "0192:921605900")
-2. Use the hash to construct a DNS hostname
-3. If the hostname exists, the participant is registered in PEPPOL
-4. The hostname tells us where to find their metadata (SMP)
+1. Create a SHA-256 hash of their lowercase ID (e.g., "0192:921605900")
+2. Base32-encode the hash (lowercase, strip trailing '=')
+3. Use the encoded hash to construct a DNS name
+4. Perform a NAPTR DNS lookup to get the SMP URL
+5. Extract the SMP URL from the NAPTR record's regexp field
 
-Returns the SMP hostname if found, null if not found
+Returns the SMP URL if found, null if not found
 #>
 function Get-SmlLookup {
     param(
@@ -43,23 +223,52 @@ function Get-SmlLookup {
         [string]$identifier,
         [string]$smlDomain = $SML_DOMAIN
     )
-    
-    # Create MD5 hash of participant ID
-    $participantId = "$icd`:$identifier"
-    $md5 = [System.Security.Cryptography.MD5]::Create()
-    $hash = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($participantId))
-    $md5Hash = [System.BitConverter]::ToString($hash).Replace("-", "").ToLower()
-    
-    # Construct hostname
-    $hostname = "b-$md5Hash.iso6523-actorid-upis.$smlDomain"
-    
-    # Check if hostname exists
+
+    # Create SHA-256 hash of lowercase participant ID
+    $participantId = "$icd`:$identifier".ToLower()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hash = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($participantId))
+
+    # Base32 encode, strip trailing '=', lowercase
+    $b32 = (ConvertTo-Base32 -Data $hash).TrimEnd('=').ToLower()
+
+    # Construct DNS name
+    $dnsName = "$b32.iso6523-actorid-upis.$smlDomain"
+
+    # Perform NAPTR DNS lookup using native .NET
     try {
-        [System.Net.Dns]::GetHostEntry($hostname) | Out-Null
-        return $hostname
+        # Try Resolve-DnsName on Windows
+        if ($IsWindows -or $null -eq $IsWindows) {
+            try {
+                $records = Resolve-DnsName -Name $dnsName -Type NAPTR -ErrorAction Stop
+                foreach ($record in $records) {
+                    if ($record.Service -eq "Meta:SMP" -and $record.Flags.ToUpper() -eq "U") {
+                        $regexp = $record.Regexp
+                        $delim = $regexp[0]
+                        $parts = $regexp.Split($delim)
+                        return $parts[2]
+                    }
+                }
+            } catch {
+                # Fall through to raw DNS query
+            }
+        }
+
+        # Raw UDP DNS query for NAPTR records using .NET sockets
+        $naptrRecords = Resolve-NaptrRaw -Name $dnsName
+        foreach ($naptr in $naptrRecords) {
+            if ($naptr.Services -eq "Meta:SMP" -and $naptr.Flags.ToUpper() -eq "U") {
+                $regexp = $naptr.Regexp
+                $delim = $regexp[0]
+                $parts = $regexp.Split($delim)
+                return $parts[2]
+            }
+        }
     } catch {
         return $null
     }
+
+    return $null
 }
 
 <#
@@ -77,28 +286,35 @@ but SMP also includes what "types" of messages you can send.
 #>
 function Get-SmpLookup {
     param(
-        [string]$smpHostname,
+        [string]$smpUrl,
         [string]$icd,
         [string]$identifier
     )
-    
+
+    # Ensure SMP URL ends with /
+    if (-not $smpUrl.EndsWith("/")) {
+        $smpUrl += "/"
+    }
+
     # Construct SMP URL
-    # Format: http://[SMP hostname]/[identifier scheme]::[participant identifier]
+    # Format: {smp_url}/[identifier scheme]::[participant identifier]
     $participantId = "$icd`:$identifier"
-    $url = "http://$smpHostname/iso6523-actorid-upis::$([System.Web.HttpUtility]::UrlEncode($participantId))"
-    
-    # Perform HTTP GET request
+    $url = "${smpUrl}iso6523-actorid-upis::$([System.Web.HttpUtility]::UrlEncode($participantId))"
+
+    # Perform HTTPS GET request
     $response = Invoke-WebRequest -Uri $url -UseBasicParsing
-    
+
     # Extract document types from ServiceMetadataReference href attributes
+    # URL-decode the response content first (SMP servers often return URL-encoded hrefs)
+    $decodedContent = [System.Uri]::UnescapeDataString($response.Content)
     $documentTypes = @()
-    $pattern = 'busdox-docid-qns::([^#]*)'
-    $matches = [regex]::Matches($response.Content, $pattern)
-    
+    $pattern = 'busdox-docid-qns::([^#"]*)'
+    $matches = [regex]::Matches($decodedContent, $pattern)
+
     foreach ($match in $matches) {
         $documentTypes += $match.Groups[1].Value
     }
-    
+
     return $documentTypes
 }
 
@@ -108,17 +324,17 @@ function Get-SmpLookup {
 $icd = "0192"
 $identifier = "921605900"
 
-# Step 1: Use SML to find where participant's metadata is hosted
-$smpHostname = Get-SmlLookup -icd $icd -identifier $identifier
-if (-not $smpHostname) {
+# Step 1: Use SML to find where participant's metadata is hosted (NAPTR lookup)
+$smpUrl = Get-SmlLookup -icd $icd -identifier $identifier
+if (-not $smpUrl) {
     Write-Host "Not a PEPPOL participant: $icd`:$identifier"
     exit 1
 }
-Write-Host "SMP hostname: $smpHostname"
+Write-Host "SMP URL: $smpUrl"
 
 # Step 2: Query their SMP to discover supported documents
 Write-Host "`nSupported document identifiers:"
-$documentTypes = Get-SmpLookup -smpHostname $smpHostname -icd $icd -identifier $identifier
+$documentTypes = Get-SmpLookup -smpUrl $smpUrl -icd $icd -identifier $identifier
 foreach ($docType in $documentTypes) {
     Write-Host "- $docType"
 }

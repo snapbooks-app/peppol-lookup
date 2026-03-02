@@ -11,10 +11,10 @@ Simple PowerShell implementation demonstrating PEPPOL participant lookup for Sna
 
 ## Dependencies
 
-Uses only PowerShell built-in functionality:
-- System.Security.Cryptography for MD5 hashing
-- System.Net.Dns for DNS lookup
-- Invoke-WebRequest for HTTP requests
+Uses PowerShell built-in functionality and dig for DNS:
+- System.Security.Cryptography for SHA-256 hashing
+- dig command (dnsutils) or Resolve-DnsName for NAPTR DNS lookup
+- Invoke-WebRequest for HTTPS requests
 - Regular expressions for XML parsing
 
 ## Running the Example
